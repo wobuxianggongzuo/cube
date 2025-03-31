@@ -1,0 +1,14 @@
+FROM python:3.9-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY crawler.py .
+
+ENV PROJECT_ID=${PROJECT_ID}
+ENV DATASET_ID=${DATASET_ID}
+ENV TABLE_ID=${TABLE_ID}
+
+ENTRYPOINT ["python", "crawler.py"] 
