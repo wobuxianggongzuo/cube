@@ -30,6 +30,32 @@ HEADERS = {
 }
 
 
+def retry_request(func, max_retries: int = 3, delay: int = 5):
+    def wrapper(*args, **kwargs):
+        for attempt in range(max_retries):
+            try:
+                start_time = time.time()
+                result = func(*args, **kwargs)
+                elapsed_time = time.time() - start_time
+
+                # 記錄請求時間
+                logger.info(f"請求完成 - 耗時: {elapsed_time:.2f}秒")
+
+                # 加入隨機延遲，避免被封鎖
+                time.sleep(delay + random.uniform(1, 3))
+
+                return result
+
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    logger.error(f"重試{max_retries}次後仍然失敗: {str(e)}")
+                    return None
+                logger.warning(f"嘗試失敗 ({attempt + 1}/{max_retries}), {delay}秒後重試...")
+                time.sleep(delay)
+
+    return wrapper
+
+
 def fetch_page(url):
     """取得網頁內容，若發生錯誤則回傳 None"""
     try:
@@ -52,7 +78,8 @@ def parse_house_ids(html):
     return house_ids
 
 
-def get_house_detail(house_id):
+@retry_request
+def get_house_detail(house_id: str) -> Optional[Dict]:
     """根據房屋 ID 爬取詳細資料，並解析所有需要的欄位"""
     url = f"https://rent.591.com.tw/{house_id}"
     html = fetch_page(url)
