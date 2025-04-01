@@ -177,11 +177,16 @@ def insert_into_bigquery(rows):
     try:
         errors = client.insert_rows_json(table_id, rows)
         if errors:
-            print(f"BigQuery 插入錯誤: {errors}")
+            logger.error(f"BigQuery 插入錯誤: {errors}")
+            raise Exception(f"BigQuery 插入錯誤: {errors}")
         else:
-            print(f"成功寫入 {len(rows)} 筆資料到 BigQuery")
+            # 從 rows 中取得 house_id 並記錄
+            house_id = rows[0].get("house_id", "unknown")
+            logger.info(f"成功寫入房屋 ID: {house_id} 到 BigQuery")
+            return True
     except Exception as e:
-        print(f"寫入 BigQuery 時發生錯誤: {e}")
+        logger.error(f"寫入 BigQuery 時發生錯誤: {e}")
+        raise e
 
 
 def save_crawl_stats(stats: Dict):
@@ -200,6 +205,7 @@ def main():
         "total_houses": 0,
         "success_count": 0,
         "failed_ids": [],
+        "success_ids": [],  # 新增成功的 ID 列表
         "total_time": 0,
     }
 
@@ -213,13 +219,16 @@ def main():
 
     logger.info(f"開始爬取 {len(house_ids)} 間房屋資料")
 
-    # 爬取詳細資料
-    rows_to_insert = []
+    # 爬取詳細資料並即時寫入
     for hid in house_ids:
         detail = get_house_detail(hid)
         if detail:
-            rows_to_insert.append(detail)
-            stats["success_count"] += 1
+            try:
+                insert_into_bigquery([detail])
+                stats["success_count"] += 1
+                stats["success_ids"].append(hid)  # 記錄成功的 ID
+            except Exception:
+                stats["failed_ids"].append(hid)
         else:
             stats["failed_ids"].append(hid)
             logger.warning(f"無法取得房屋資料: {hid}")
@@ -231,11 +240,6 @@ def main():
     # 儲存統計資料 for local
     save_crawl_stats(stats)
 
-    # 寫入 BigQuery
-    if rows_to_insert:
-        insert_into_bigquery(rows_to_insert)
-        logger.info(f"成功儲存 {len(rows_to_insert)} 筆資料到 BigQuery")
-
     # 輸出總結
     logger.info(f"""
         爬蟲作業完成:
@@ -244,6 +248,7 @@ def main():
         - 失敗筆數: {len(stats["failed_ids"])}
         - 成功率: {stats["success_rate"]}%
         - 總耗時: {stats["total_time"]}秒
+        - 成功寫入的房屋 ID: {", ".join(stats["success_ids"])}
     """)
 
 
