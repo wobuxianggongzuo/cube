@@ -8,6 +8,21 @@ from urllib.parse import urlencode
 from google.cloud import bigquery
 import os
 from dotenv import load_dotenv
+import logging
+from datetime import datetime
+from typing import Optional, Dict
+from pathlib import Path
+
+# 設定基本日誌
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler(f"crawler_{datetime.now().strftime('%Y%m%d')}.log", encoding="utf-8"),
+        logging.StreamHandler(),
+    ],
+)
+logger = logging.getLogger(__name__)
 
 # 設定 HTTP 請求 headers
 HEADERS = {
@@ -142,25 +157,64 @@ def insert_into_bigquery(rows):
         print(f"寫入 BigQuery 時發生錯誤: {e}")
 
 
+def save_crawl_stats(stats: Dict):
+    """儲存爬蟲統計資料"""
+    Path("stats").mkdir(exist_ok=True)
+    filename = f"stats/crawl_stats_{datetime.now().strftime('%Y%m%d')}.json"
+
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(stats, f, ensure_ascii=False, indent=2)
+
+
 def main():
+    start_time = time.time()
+    stats = {
+        "start_time": datetime.now().isoformat(),
+        "total_houses": 0,
+        "success_count": 0,
+        "failed_ids": [],
+        "total_time": 0,
+    }
+
     # 設定篩選條件：此處 region=8 代表臺中市，kind=0 代表租屋物件
     params = {"region": "8", "kind": "0", "sort": "money_desc"}
     house_ids = search_houses(params)
-    print(f"總共找到 {len(house_ids)} 間房屋，ID 列表：{house_ids}")
+    stats["total_houses"] = len(house_ids)
 
-    # 依據爬取的每筆房屋 ID，獲取詳細資料並整理成 dict
+    logger.info(f"開始爬取 {len(house_ids)} 間房屋資料")
+
+    # 爬取詳細資料
     rows_to_insert = []
     for hid in house_ids:
         detail = get_house_detail(hid)
         if detail:
             rows_to_insert.append(detail)
+            stats["success_count"] += 1
+        else:
+            stats["failed_ids"].append(hid)
+            logger.warning(f"無法取得房屋資料: {hid}")
 
-    # save to json
-    with open("houses.json", "w", encoding="utf-8") as f:
-        json.dump(rows_to_insert, f, ensure_ascii=False, indent=4)
+    # 更新統計資料
+    stats["total_time"] = round(time.time() - start_time, 2)
+    stats["success_rate"] = round(stats["success_count"] / stats["total_houses"] * 100, 2)
 
+    # 儲存統計資料 for local
+    save_crawl_stats(stats)
+
+    # 寫入 BigQuery
     if rows_to_insert:
         insert_into_bigquery(rows_to_insert)
+        logger.info(f"成功儲存 {len(rows_to_insert)} 筆資料到 BigQuery")
+
+    # 輸出總結
+    logger.info(f"""
+        爬蟲作業完成:
+        - 總房屋數: {stats["total_houses"]}
+        - 成功筆數: {stats["success_count"]}
+        - 失敗筆數: {len(stats["failed_ids"])}
+        - 成功率: {stats["success_rate"]}%
+        - 總耗時: {stats["total_time"]}秒
+    """)
 
 
 if __name__ == "__main__":
