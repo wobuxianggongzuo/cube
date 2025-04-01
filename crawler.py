@@ -203,8 +203,11 @@ def main():
         "total_time": 0,
     }
 
-    # 設定篩選條件：此處 region=8 代表臺中市，kind=0 代表租屋物件
-    params = {"region": "8", "kind": "0", "sort": "money_desc"}
+    # 設定篩選條件
+    params = {
+        "region": "8",  # 台中市
+        "sort": "posttime_desc",  # 發布時間由新至舊排序
+    }
     house_ids = search_houses(params)
     stats["total_houses"] = len(house_ids)
 
